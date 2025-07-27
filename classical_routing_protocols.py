@@ -6,73 +6,70 @@ from scipy.optimize import minimize
 import metric_utils as mu
 
 
-class ClassicalRoutingProtocol(RoutingProtocol):
+class BestLatencyProtocol(RoutingProtocol):
 
-    def play_round(self, N, possible_paths, packets):
-        # Se itera por paquete.
+    # Inicializa estrategias aleatoriamente.
+    def init(self, _, packets, possible_paths):
         for packet in packets:
-            packet.latency = 0
-            
-            # Enruta el paquete de acuerdo al protocolo dado.
-            selected_path = self.select_path(N, possible_paths, packet)
-            
-            # Actualiza el camino actual (reduciendo el flujo del camino previamente elegido).
-            if (packet.current_path is not None):
-                N.update_path_flow(packet.current_path, -1)
-            packet.current_path = selected_path
-            # Incrementa el flujo de las aristas del camino elegido.
-            N.update_path_flow(selected_path, 1)
-            # Actualiza la latencia del paquete.
-            package_latency = N.get_path_latency(selected_path)
+            packet.strategy = random.choice(possible_paths)
 
-        # Devuelve la red actualizada y las métricas de la ronda.
-        metrics = mu.calculate_protocol_execution_metrics(N, packets)
-        return N, metrics
+    # Como son estrategias puras, devuelve el camino elegido.
+    def select_paths(self, _, packets, __):
+        return [packet.strategy for packet in packets]
 
-    # Estrategia a jugar.
-    def select_path(self, N, possible_paths, packet):
-        pass
-
-
-class RandomPathProtocol(ClassicalRoutingProtocol):
+    # Elige el camino óptimo individual de cada paquete.
+    def update_strategies(self, N, packets, possible_paths):
+        for packet in packets:
+            packet.strategy = self._best_latency_path(N, packet, possible_paths)
     
-    # Estrategia mixta equiprobable entre todos los caminos posibles.
-    def select_path(self, N, possible_paths, _):
-        return random.choice(possible_paths)
+    def _best_latency_path(self, N, packet, possible_paths):
+        def latency_variation(path):
+            N.move_flow_unit(packet.path, path)
+            new_latency = N.get_path_latency(path)
+            N.move_flow_unit(path, packet.path) # rollback
+            return new_latency - packet.latency
+        return min(possible_paths, key=lambda path: latency_variation(path))
 
 
-
-class BestLatencyProtocol(ClassicalRoutingProtocol):
-    
-    # Estrategia pura que elige el mejor camino posible actual.
-    def select_path(self, N, possible_paths, _):
-        return min(possible_paths, key=lambda path: N.get_path_latency(path))
-
-
-class OptimizableLatencyProtocol(ClassicalRoutingProtocol):
+class OptimizableLatencyProtocol:
 
     def __init__(self, optimizations_per_round):
         self.optimizations_per_round = optimizations_per_round
 
+    # Inicializa estrategias aleatoriamente.
+    def init(self, _, packets, possible_paths):
+        for packet in packets:
+            packet.strategy = np.random.dirichlet(np.ones(len(possible_paths)))
+
+    # Devuelve un  camino de acuerdo a la distribución de probabilidades de la estrategia mixta.
+    def select_paths(self, _, packets, possible_paths):
+        return [possible_paths[np.random.choice(range(len(possible_paths), p=packet.strategy)] for packet in packets]
+
+    # Optimiza la latencia esperada.
+    def update_strategies(self, N, packets, possible_paths):
+        for packet in packets:
+            packet.strategy = self._optimized_probabilities(N, packet, possible_paths)
+    
+    def _optimized_probabilities(self, N, packet, possible_paths):
+        def expected_latency(probs):
+            return sum([p[i] * self._get_path_potential_latency(possible_paths[i]) for i in range(n_paths)])
+        
+        constraints = {'type': 'eq', 'fun': lambda x : np.sum(x) - 1} 
+        bounds = [(0, 1)] * len(possible_paths)
+        return minimize(expected_latency, packet.strategy, method='SLSQP', bounds=bounds, 
+                        constraints=constraints, options={'maxiter': self.optimizations_per_round}).x
+
+    def _get_path_potential_latency(self, N, packet, path):
+        N.move_flow_unit(packet.path, path)
+        new_latency = N.get_path_latency(path)
+        N.move_flow_unit(path, packet.path) # rollback
+        return new_latency
+
     # Estrategia que minimza el costo esperado de acuerdo a las probabilidades de la estrategia mixta.
     def select_path(self, N, possible_paths, packet):
-        n_paths = len(possible_paths)
-        
-        # Inicializa probabilidades aleatoriamente si es la primera vez.
-        if ("p" not in packet.params):
-            packet.params["p"] = np.random.dirichlet(np.ones(n_paths))
 
         # Latencia esperada.
         def expected_latency(p):
+            for 
             return sum([p[i] * N.get_path_latency(possible_paths[i]) for i in range(n_paths)])
-
-        # Minimización de latencia esperada en base a los parámetros.
-        p = packet.params["p"]
-        constraints = {'type': 'eq', 'fun': lambda x : np.sum(x) - 1} 
-        bounds = [(0, 1)] * n_paths
-        p = minimize(expected_latency, p, method='SLSQP', bounds=bounds, constraints=constraints, options={'maxiter': self.optimizations_per_round}).x
-        packet.params["p"] = p
-
-        # Devuelve un camino aleatorio elegido en base a la distribución de probabilidad.
-        return possible_paths[np.random.choice(range(n_paths), p=p)]
         

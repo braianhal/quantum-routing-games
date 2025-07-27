@@ -65,6 +65,19 @@ class Network(nx.DiGraph):
             u, v = path[n], path[n+1]
             self[u][v]["flow"] += factor
 
+    # Mueve una unidad de flujo de un camino a otro.
+    # Si el primer camino no existe, solo agrega en el segundo.
+    def move_flow_unit(self, old_path, new_path):
+        if (old_path is not None):
+            self.update_path_flow(old_path, -1)
+        self.update_path_flow(new_path, 1)
+
+    def simulate_flow_unit_latency_change(self, old_path, new_path):
+        self.move_flow_unit(old_path, path)
+        new_latency = N.get_path_latency(path)
+        N.move_flow_unit(path, packet.path) # rollback
+        return new_latency
+
 # Clase para generar redes aleatorias.
 class NetworkGenerator:
 
@@ -120,9 +133,10 @@ class NetworkDrawer:
         plt.title("Red")
         plt.show()
 
+        
 class Packet:
 
     def __init__(self):
         self.latency = 0
-        self.current_path = None
-        self.params = {}
+        self.path = None
+        self.strategy = None
